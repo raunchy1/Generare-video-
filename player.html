@@ -1,14 +1,14 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="ro">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Product Showcase – Preview</title>
+  <title>Anvelope Ungheni – Preview</title>
   <script type="module" src="./node_modules/@helios-project/player/dist/helios-player.bundle.mjs"></script>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body {
-      background: #08080f;
+      background: #050505;
       display: flex;
       flex-direction: column;
       align-items: center;
@@ -16,33 +16,26 @@
       min-height: 100vh;
       font-family: system-ui, sans-serif;
       color: #fff;
-      gap: 20px;
-      padding: 24px;
+      gap: 16px;
+      padding: 20px;
     }
-    h1 {
-      font-size: 18px;
-      font-weight: 500;
-      color: rgba(255,255,255,0.5);
-      letter-spacing: 0.05em;
-    }
+    h1 { font-size: 15px; font-weight: 400; color: rgba(255,255,255,0.4); letter-spacing: .08em; }
     helios-player {
-      border-radius: 12px;
+      border-radius: 8px;
       overflow: hidden;
-      box-shadow: 0 0 80px rgba(124,111,247,0.25);
+      box-shadow: 0 0 80px rgba(180,10,10,0.2), 0 0 40px rgba(0,0,0,0.8);
     }
   </style>
 </head>
 <body>
-  <h1>Product Showcase · 10s · 1920×1080 · 30fps</h1>
-
+  <h1>Anvelope Ungheni · 15s · 1920×1080 · 30fps</h1>
   <helios-player
     src="./composition.html"
     width="1280"
     height="720"
     controls
     autoplay
-    loop
-    input-props='{"productName":"AuraPhone Pro","price":299,"tagline":"Reimagined. Refined. Ready.","accentColor":"#7c6ff7"}'
+    input-props='{"brand":"Anvelope","city":"Ungheni","phone":"068 263 644","address":"Strada Decebal 62/1, Ungheni","hours":"Luni–Sâmbătă  8:00 – 20:00","email":"info@anvelope-ungheni.md"}'
   ></helios-player>
 </body>
 </html>

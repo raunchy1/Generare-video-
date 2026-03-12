@@ -3,202 +3,452 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Product Showcase</title>
+<title>Anvelope Ungheni – Commercial</title>
 <style>
   *{margin:0;padding:0;box-sizing:border-box}
-  body{background:#08080f;display:flex;align-items:center;justify-content:center;min-height:100vh;overflow:hidden}
-  canvas{max-width:100vw;max-height:100vh;object-fit:contain}
+  body{background:#000;display:flex;align-items:center;justify-content:center;
+       min-height:100vh;overflow:hidden}
+  canvas{max-width:100vw;max-height:100vh}
 </style>
 </head>
 <body>
 <canvas id="c"></canvas>
 <script>
-// ── Canvas setup ──────────────────────────────────────────────────────────
+// ── Setup ─────────────────────────────────────────────────────────────────────
 const canvas = document.getElementById('c');
-const W = 1920, H = 1080, FPS = 30, DURATION = 10;
-canvas.width  = W;
-canvas.height = H;
+const W = 1920, H = 1080, FPS = 30, DUR = 15;
+canvas.width = W; canvas.height = H;
 const ctx = canvas.getContext('2d');
 
-// ── Helpers (reimplementing interpolate + spring without external libs) ────
-function clamp(v, lo, hi){ return Math.max(lo, Math.min(hi, v)); }
+// ── Math helpers ──────────────────────────────────────────────────────────────
+const clamp = (v,a,b) => Math.max(a, Math.min(b, v));
+const lerp  = (a,b,t) => a + (b-a)*t;
 
-function interpolate(v, input, output){
-  const [i0,i1] = input, [o0,o1] = output;
-  const t = clamp((v - i0) / (i1 - i0), 0, 1);
-  return o0 + t * (o1 - o0);
+function interp(v, [i0,i1], [o0,o1], ease) {
+  let t = clamp((v-i0)/(i1-i0), 0, 1);
+  if (ease === 'eio') t = t<.5 ? 2*t*t : -1+(4-2*t)*t; // ease-in-out quad
+  if (ease === 'eo')  t = t*t*(3-2*t);                   // smoothstep
+  return o0 + t*(o1-o0);
 }
 
-// Simple spring simulation (Euler integration, matches Helios defaults)
-function springValue(frame, fps, from, to, stiffness=60, damping=12, mass=1){
-  let pos = from, vel = 0;
-  const dt = 1 / fps;
-  const steps = Math.max(0, frame);
-  for(let i = 0; i < steps; i++){
-    const force = -stiffness * (pos - to) - damping * vel;
-    vel += (force / mass) * dt;
-    pos += vel * dt;
+function springV(frame, from, to, stiffness=55, damping=11) {
+  let p=from, v=0, dt=1/FPS;
+  for(let i=0;i<Math.max(0,frame);i++){
+    const f=-stiffness*(p-to)-damping*v;
+    v+=f*dt; p+=v*dt;
   }
-  return pos;
+  return p;
 }
 
-// ── Particles (deterministic, seeded) ──────────────────────────────────────
-const PARTICLES = Array.from({length:120}, (_,i) => {
-  const s = (i * 2654435761) >>> 0;
-  const r = n => ((s ^ (s >> n)) % 1000) / 1000;
-  return { x: r(3)*W, y: r(7)*H, radius: 1+r(11)*3, speed: 0.3+r(13)*0.8,
-           hue: 200+r(17)*100, alpha: 0.15+r(19)*0.45, drift: (r(23)-0.5)*0.4 };
+// ── Noise / Grain ─────────────────────────────────────────────────────────────
+const grainCanvas = document.createElement('canvas');
+grainCanvas.width = grainCanvas.height = 256;
+const gCtx = grainCanvas.getContext('2d');
+function refreshGrain() {
+  const id = gCtx.createImageData(256,256);
+  for(let i=0;i<id.data.length;i+=4){
+    const v = (Math.random()*80)|0;
+    id.data[i]=id.data[i+1]=id.data[i+2]=v; id.data[i+3]=18;
+  }
+  gCtx.putImageData(id,0,0);
+}
+refreshGrain();
+
+// ── Particles (smoke + dust) ──────────────────────────────────────────────────
+const SMOKE = Array.from({length:60}, (_,i) => ({
+  x: Math.random()*W, y: H*0.6 + Math.random()*H*0.5,
+  vx: (Math.random()-.5)*0.3, vy: -(0.15+Math.random()*0.3),
+  r:  40+Math.random()*120, alpha: 0.02+Math.random()*0.05,
+  phase: Math.random()*Math.PI*2
+}));
+
+const DUST = Array.from({length:80}, (_,i) => {
+  const s=(i*2654435761)>>>0, rn=n=>((s^(s>>n))%1000)/1000;
+  return {x:rn(3)*W, y:rn(7)*H, r:1+rn(11)*2,
+          speed:0.2+rn(13)*0.5, hue:rn(17)*30+10,
+          alpha:0.1+rn(19)*0.3, drift:(rn(23)-.5)*0.25};
 });
 
-function drawParticles(frame){
-  PARTICLES.forEach(p => {
-    const y = ((p.y - p.speed*frame) % H + H) % H;
-    const x = p.x + p.drift*frame;
-    const g = ctx.createRadialGradient(x,y,0, x,y, p.radius*2.5);
-    g.addColorStop(0, `hsla(${p.hue},80%,70%,${p.alpha})`);
-    g.addColorStop(1, `hsla(${p.hue},80%,70%,0)`);
-    ctx.beginPath(); ctx.arc(x,y,p.radius*2.5,0,Math.PI*2);
-    ctx.fillStyle = g; ctx.fill();
+function drawParticles(frame) {
+  // Smoke
+  SMOKE.forEach(p => {
+    const t = frame/FPS;
+    const x = p.x + Math.sin(t*0.3+p.phase)*30 + p.vx*frame;
+    const y = ((p.y + p.vy*frame) % (H+200) + H+200) % (H+200) - 100;
+    const g = ctx.createRadialGradient(x,y,0,x,y,p.r);
+    g.addColorStop(0,`rgba(30,20,20,${p.alpha})`);
+    g.addColorStop(1,'rgba(0,0,0,0)');
+    ctx.fillStyle=g; ctx.beginPath(); ctx.arc(x,y,p.r,0,Math.PI*2); ctx.fill();
+  });
+  // Dust sparkles
+  DUST.forEach(p => {
+    const y = ((p.y-p.speed*frame)%H+H)%H;
+    const x = p.x+p.drift*frame;
+    const g=ctx.createRadialGradient(x,y,0,x,y,p.r*3);
+    g.addColorStop(0,`hsla(${p.hue},30%,90%,${p.alpha})`);
+    g.addColorStop(1,'rgba(0,0,0,0)');
+    ctx.beginPath(); ctx.arc(x,y,p.r*3,0,Math.PI*2);
+    ctx.fillStyle=g; ctx.fill();
   });
 }
 
-// ── Background ────────────────────────────────────────────────────────────
-function drawBg(frame){
-  ctx.fillStyle='#08080f'; ctx.fillRect(0,0,W,H);
-  const pulse = 0.5+0.5*Math.sin((frame/FPS)*Math.PI*0.4);
-  const a = 0.12+pulse*0.06;
-  const g = ctx.createRadialGradient(W*.62,H*.5,0, W*.62,H*.5,700);
-  g.addColorStop(0, `rgba(124,111,247,${a})`);
-  g.addColorStop(1, 'rgba(124,111,247,0)');
-  ctx.fillStyle=g; ctx.fillRect(0,0,W,H);
-  drawParticles(frame);
-}
-
-// ── roundRect helper ──────────────────────────────────────────────────────
-function rr(ctx,x,y,w,h,r){
+// ── Volumetric light ──────────────────────────────────────────────────────────
+function drawVolumetricLight(pulse) {
+  const cx=W/2, alpha=0.04+pulse*0.03;
+  const g=ctx.createConicalGradient
+    ? null // not standard; fallback:
+    : null;
+  // top cone
+  ctx.save();
+  const cone = ctx.createLinearGradient(cx,0,cx,H*0.7);
+  cone.addColorStop(0,`rgba(255,250,240,${alpha*2})`);
+  cone.addColorStop(0.5,`rgba(200,180,150,${alpha})`);
+  cone.addColorStop(1,'rgba(0,0,0,0)');
+  ctx.fillStyle=cone;
   ctx.beginPath();
-  ctx.moveTo(x+r,y); ctx.lineTo(x+w-r,y);
-  ctx.quadraticCurveTo(x+w,y, x+w,y+r);
-  ctx.lineTo(x+w,y+h-r); ctx.quadraticCurveTo(x+w,y+h, x+w-r,y+h);
-  ctx.lineTo(x+r,y+h); ctx.quadraticCurveTo(x,y+h, x,y+h-r);
-  ctx.lineTo(x,y+r); ctx.quadraticCurveTo(x,y, x+r,y);
+  ctx.moveTo(cx,0);
+  ctx.lineTo(cx-W*0.22,H*0.7);
+  ctx.lineTo(cx+W*0.22,H*0.7);
   ctx.closePath();
-}
-
-// ── Product phone ─────────────────────────────────────────────────────────
-function drawProduct(cx,cy,opacity){
-  ctx.save(); ctx.globalAlpha=opacity;
-  const pw=260,ph=520,pr=36;
-  ctx.shadowColor='rgba(124,111,247,.5)'; ctx.shadowBlur=60; ctx.shadowOffsetY=20;
-  const bg=ctx.createLinearGradient(cx-pw/2,cy-ph/2, cx+pw/2,cy+ph/2);
-  bg.addColorStop(0,'#1e1b3a'); bg.addColorStop(1,'#0d0c1e');
-  rr(ctx,cx-pw/2,cy-ph/2,pw,ph,pr); ctx.fillStyle=bg; ctx.fill();
-  ctx.shadowBlur=0; ctx.strokeStyle='rgba(255,255,255,.08)'; ctx.lineWidth=1.5;
-  rr(ctx,cx-pw/2,cy-ph/2,pw,ph,pr); ctx.stroke();
-  const sp=14;
-  const sg=ctx.createLinearGradient(cx-pw/2+sp,cy-ph/2+60, cx+pw/2-sp,cy+ph/2-sp);
-  sg.addColorStop(0,'#1a103a'); sg.addColorStop(.5,'#120c2e'); sg.addColorStop(1,'#0a0718');
-  rr(ctx,cx-pw/2+sp,cy-ph/2+60,pw-sp*2,ph-80,22); ctx.fillStyle=sg; ctx.fill();
-  ctx.fillStyle='#0a0718';
-  ctx.beginPath(); ctx.arc(cx,cy-ph/2+30,12,0,Math.PI*2); ctx.fill();
-  ctx.fillStyle='#1a1240';
-  ctx.beginPath(); ctx.arc(cx,cy-ph/2+30,7,0,Math.PI*2); ctx.fill();
-  ctx.fillStyle='rgba(255,255,255,.25)';
-  ctx.beginPath(); ctx.arc(cx-2,cy-ph/2+27,2.5,0,Math.PI*2); ctx.fill();
-  const lx=cx-pw/2+sp+18, lw=pw-sp*2-36, ly=cy-ph/2+105;
-  ctx.fillStyle='rgba(124,111,247,.15)'; ctx.fillRect(lx,ly,lw,3);
-  [.85,.85,.6,.85,.4].forEach((bw,i)=>{
-    const a=0.07+(5-i)*0.04;
-    ctx.fillStyle=`rgba(180,170,255,${a})`;
-    ctx.beginPath(); ctx.roundRect(lx,ly+28+i*52,lw*bw,10,5); ctx.fill();
-  });
-  const cg=ctx.createLinearGradient(lx,ly+155, lx+lw,ly+215);
-  cg.addColorStop(0,'rgba(124,111,247,.3)'); cg.addColorStop(1,'rgba(80,60,200,.2)');
-  ctx.fillStyle=cg; ctx.beginPath(); ctx.roundRect(lx,ly+155,lw,58,10); ctx.fill();
-  ctx.fillStyle='rgba(255,255,255,.2)';
-  ctx.beginPath(); ctx.roundRect(cx-50,cy+ph/2-38,100,4,2); ctx.fill();
+  ctx.fill();
   ctx.restore();
 }
 
-// ── Price ─────────────────────────────────────────────────────────────────
-function drawPrice(cx,cy,val,opacity){
-  ctx.save(); ctx.globalAlpha=opacity;
-  ctx.shadowColor='#7c6ff7'; ctx.shadowBlur=40;
-  ctx.font='bold 128px system-ui,sans-serif';
-  ctx.textAlign='center'; ctx.textBaseline='middle';
-  ctx.fillStyle='#ffffff';
-  ctx.fillText('$'+Math.round(val), cx, cy);
+// ── Reflective floor ──────────────────────────────────────────────────────────
+function drawFloor(centerY) {
+  ctx.save();
+  const g=ctx.createLinearGradient(0,centerY,0,H);
+  g.addColorStop(0,'rgba(255,255,255,0.04)');
+  g.addColorStop(1,'rgba(0,0,0,0)');
+  ctx.fillStyle=g;
+  ctx.fillRect(0,centerY,W,H-centerY);
   ctx.restore();
 }
 
-// ── Labels ────────────────────────────────────────────────────────────────
-function drawLabels(cx,cy,opacity){
-  ctx.save(); ctx.globalAlpha=opacity; ctx.textAlign='center';
-  ctx.font='bold 56px system-ui,sans-serif'; ctx.fillStyle='#fff';
-  ctx.shadowColor='rgba(124,111,247,.6)'; ctx.shadowBlur=20;
-  ctx.fillText('AuraPhone Pro', cx, cy-50);
-  ctx.font='28px system-ui,sans-serif'; ctx.fillStyle='rgba(180,170,255,.75)';
-  ctx.shadowBlur=0;
-  ctx.fillText('Reimagined. Refined. Ready.', cx, cy+10);
-  ctx.restore();
-}
+// ── Tire ring drawing ─────────────────────────────────────────────────────────
+function drawTireRing(cx, cy, scale, rotation, opacity) {
+  ctx.save();
+  ctx.globalAlpha = opacity;
+  ctx.translate(cx, cy);
+  ctx.rotate(rotation);
+  ctx.scale(scale, scale);
 
-// ── Divider ───────────────────────────────────────────────────────────────
-function drawDivider(cx,cy,opacity){
-  ctx.save(); ctx.globalAlpha=opacity*.35;
-  const g=ctx.createLinearGradient(cx-200,cy, cx+200,cy);
-  g.addColorStop(0,'transparent'); g.addColorStop(.5,'rgba(124,111,247,.8)'); g.addColorStop(1,'transparent');
-  ctx.strokeStyle=g; ctx.lineWidth=1;
-  ctx.beginPath(); ctx.moveTo(cx-200,cy); ctx.lineTo(cx+200,cy); ctx.stroke();
-  ctx.restore();
-}
+  const R  = 130;  // outer arc radius
+  const LW = 26;   // stroke width of main ring
+  // C-shape opening to the right: from ~50° to ~-50° going clockwise (long way)
+  const gapHalf = Math.PI * 0.27; // half of the right-side gap
+  const arcStart = gapHalf;        // bottom of gap
+  const arcEnd   = -gapHalf;      // top of gap (clockwise long arc = left side)
 
-// ── Badge ─────────────────────────────────────────────────────────────────
-function drawBadge(cx,cy,opacity){
-  ctx.save(); ctx.globalAlpha=opacity;
-  const bw=220,bh=54,br=27,bx=cx-bw/2,by=cy-bh/2;
-  const g=ctx.createLinearGradient(bx,by, bx+bw,by);
-  g.addColorStop(0,'#7c6ff7'); g.addColorStop(1,'#5b4de0');
-  ctx.fillStyle=g; ctx.beginPath(); ctx.roundRect(bx,by,bw,bh,br); ctx.fill();
-  ctx.font='bold 22px system-ui,sans-serif'; ctx.textAlign='center';
-  ctx.textBaseline='middle'; ctx.fillStyle='#fff';
-  ctx.fillText('Buy Now →', cx, cy);
-  ctx.restore();
-}
+  // ── Glossy metallic sheen on the ring ─────────────────────────────────────
+  // Draw thick stroke arc (main tire body)
+  ctx.beginPath();
+  ctx.arc(0, 0, R, arcStart, arcEnd, false);
+  ctx.strokeStyle = '#d8d8d8';
+  ctx.lineWidth   = LW;
+  ctx.lineCap     = 'round';
+  ctx.shadowColor = 'rgba(255,255,255,0.4)';
+  ctx.shadowBlur  = 18;
+  ctx.stroke();
 
-// ── Main render ───────────────────────────────────────────────────────────
-function render(frame){
-  const productCX=W*.28, productCY=H*.50, infoCX=W*.65;
+  // Highlight (bright top edge of ring)
+  ctx.beginPath();
+  ctx.arc(0, 0, R + LW*0.28, arcStart + 0.15, arcEnd - 0.15, false);
+  ctx.strokeStyle = 'rgba(255,255,255,0.55)';
+  ctx.lineWidth   = 5;
+  ctx.shadowBlur  = 12;
+  ctx.stroke();
 
-  const productX   = interpolate(frame,[0,60],[productCX-500,productCX]);
-  const productOp  = interpolate(frame,[0,60],[0,1]);
-  const infoOp     = interpolate(frame,[24,72],[0,1]);
-  const priceVal   = springValue(Math.max(0,frame-45), FPS, 0, 299);
-  const priceOp    = interpolate(frame,[45,75],[0,1]);
-  const badgeOp    = interpolate(frame,[120,150],[0,1]);
-  const badgeY     = interpolate(frame,[120,150],[H*.78+30,H*.78]);
-
-  drawBg(frame);
-  drawProduct(productX, productCY, productOp);
-  drawLabels(infoCX, H*.40, infoOp);
-  drawDivider(infoCX, H*.535, infoOp);
-  drawPrice(infoCX, H*.60, priceVal, priceOp);
-  drawBadge(infoCX, badgeY, badgeOp);
-}
-
-// ── Playback loop ─────────────────────────────────────────────────────────
-let frame=0, lastTime=null, running=true;
-const TOTAL = FPS*DURATION;
-
-function loop(ts){
-  if(!lastTime) lastTime=ts;
-  const elapsed=(ts-lastTime)/1000;
-  if(elapsed >= 1/FPS){
-    render(Math.min(frame,TOTAL));
-    frame = (frame+1) % (TOTAL+1);
-    lastTime=ts;
+  // Inner grooves (tread lines)
+  ctx.shadowBlur = 0;
+  const grooves = 5;
+  for (let i = 0; i < grooves; i++) {
+    const r = R - LW*0.5 - 2 - i * 9;
+    if (r < 30) continue;
+    ctx.beginPath();
+    ctx.arc(0, 0, r, arcStart + 0.12, arcEnd - 0.12, false);
+    ctx.strokeStyle = `rgba(255,255,255,${0.18 - i*0.025})`;
+    ctx.lineWidth   = 1.8;
+    ctx.stroke();
   }
-  if(running) requestAnimationFrame(loop);
+
+  // Dark inner fill (tire cavity illusion)
+  ctx.beginPath();
+  ctx.arc(0, 0, R - LW*0.5 - 56, 0, Math.PI*2);
+  ctx.fillStyle = 'rgba(0,0,0,0.5)';
+  ctx.fill();
+
+  // Speed / motion lines extending to the right
+  const lineColors = ['rgba(255,255,255,0.55)', 'rgba(255,255,255,0.35)', 'rgba(255,255,255,0.2)',
+                      'rgba(255,255,255,0.12)', 'rgba(255,255,255,0.07)'];
+  const lineYOffsets = [-8, 2, 12, 22, 32];
+  const lineLengths  = [170, 210, 180, 140, 90];
+  for (let i = 0; i < 5; i++) {
+    const startX = R * Math.cos(-gapHalf) + 10;
+    const startY = lineYOffsets[i] + R * Math.sin(-gapHalf) * (i > 2 ? 0.3 : 0.1);
+    ctx.beginPath();
+    ctx.moveTo(startX,          startY);
+    ctx.lineTo(startX + lineLengths[i], startY + i*3);
+    ctx.strokeStyle = lineColors[i];
+    ctx.lineWidth   = 2 - i*0.25;
+    ctx.lineCap     = 'round';
+    ctx.stroke();
+  }
+
+  ctx.restore();
+}
+
+// ── Chromatic-aberration text helper ─────────────────────────────────────────
+function drawTextCA(text, x, y, font, baseColor, caAmt, align='left') {
+  ctx.save();
+  ctx.font        = font;
+  ctx.textBaseline= 'middle';
+  ctx.textAlign   = align;
+  if (caAmt > 0) {
+    // Red channel shifted left
+    ctx.fillStyle = `rgba(255,0,0,0.45)`;
+    ctx.fillText(text, x - caAmt, y - caAmt*0.3);
+    // Blue channel shifted right
+    ctx.fillStyle = `rgba(0,80,255,0.35)`;
+    ctx.fillText(text, x + caAmt, y + caAmt*0.3);
+  }
+  ctx.fillStyle = baseColor;
+  ctx.fillText(text, x, y);
+  ctx.restore();
+}
+
+// ── Red light sweep ───────────────────────────────────────────────────────────
+function drawSweep(cx, cy, progress, alpha, width=900) {
+  ctx.save();
+  const x = cx - width/2 + progress * (width * 1.5) - width*0.25;
+  const sw = 180;
+  const g  = ctx.createLinearGradient(x-sw,cy-180, x+sw,cy+180);
+  g.addColorStop(0,   'rgba(255,0,0,0)');
+  g.addColorStop(0.4, `rgba(255,60,40,${alpha*0.55})`);
+  g.addColorStop(0.5, `rgba(255,100,70,${alpha})`);
+  g.addColorStop(0.6, `rgba(255,60,40,${alpha*0.55})`);
+  g.addColorStop(1,   'rgba(255,0,0,0)');
+  ctx.fillStyle = g;
+  ctx.fillRect(x-sw, cy-200, sw*2, 400);
+  ctx.restore();
+}
+
+// ── Info glow sweep ───────────────────────────────────────────────────────────
+function drawInfoSweep(progress, infoY, alpha) {
+  ctx.save();
+  const x = -300 + progress * (W + 600);
+  const sw = 120;
+  const g  = ctx.createLinearGradient(x-sw, 0, x+sw, 0);
+  g.addColorStop(0,   'rgba(255,220,180,0)');
+  g.addColorStop(0.5, `rgba(255,220,180,${alpha})`);
+  g.addColorStop(1,   'rgba(255,220,180,0)');
+  ctx.fillStyle = g;
+  ctx.fillRect(x-sw, infoY-10, sw*2, 280);
+  ctx.restore();
+}
+
+// ── Company info block ────────────────────────────────────────────────────────
+function drawInfo(cx, y, opacity) {
+  if (opacity <= 0) return;
+  ctx.save();
+  ctx.globalAlpha = opacity;
+  ctx.textAlign   = 'center';
+
+  // Separator line
+  const lw = 420;
+  const lg = ctx.createLinearGradient(cx-lw/2,y, cx+lw/2,y);
+  lg.addColorStop(0,   'rgba(255,255,255,0)');
+  lg.addColorStop(0.5, 'rgba(255,255,255,0.35)');
+  lg.addColorStop(1,   'rgba(255,255,255,0)');
+  ctx.strokeStyle = lg; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(cx-lw/2,y); ctx.lineTo(cx+lw/2,y); ctx.stroke();
+  y += 30;
+
+  const rows = [
+    { label: '📞  068 263 644',  size: 34, color: '#ffffff', weight: 'bold' },
+    { label: '📍  Str. Decebal 62/1, Ungheni', size: 26, color: '#cccccc', weight: 'normal' },
+    { label: '🕗  Luni–Sâmbătă  8:00 – 20:00', size: 26, color: '#cccccc', weight: 'normal' },
+    { label: '✉  info@anvelope-ungheni.md',    size: 24, color: '#aaaaaa', weight: 'normal' },
+  ];
+  rows.forEach((r, i) => {
+    ctx.font = `${r.weight} ${r.size}px system-ui,sans-serif`;
+    ctx.fillStyle   = r.color;
+    ctx.shadowColor = 'rgba(200,50,30,0.25)';
+    ctx.shadowBlur  = 10;
+    ctx.fillText(r.label, cx, y + i * 52);
+  });
+  ctx.restore();
+}
+
+// ── Soft glow post-effect ─────────────────────────────────────────────────────
+function applyGlow(intensity) {
+  if (intensity <= 0) return;
+  ctx.save();
+  ctx.globalAlpha      = intensity * 0.18;
+  ctx.filter           = 'blur(8px)';
+  ctx.drawImage(canvas, 0, 0);
+  ctx.filter           = 'none';
+  ctx.globalAlpha      = 1;
+  ctx.restore();
+}
+
+// ── Film grain overlay ────────────────────────────────────────────────────────
+function applyGrain() {
+  if (Math.random() < 0.5) refreshGrain();
+  ctx.save();
+  ctx.globalAlpha = 1;
+  ctx.globalCompositeOperation = 'overlay';
+  const pat = ctx.createPattern(grainCanvas, 'repeat');
+  ctx.fillStyle = pat;
+  ctx.fillRect(0, 0, W, H);
+  ctx.globalCompositeOperation = 'source-over';
+  ctx.restore();
+}
+
+// ── Vignette ─────────────────────────────────────────────────────────────────
+function applyVignette(strength=0.65) {
+  ctx.save();
+  const g = ctx.createRadialGradient(W/2,H/2,H*0.25, W/2,H/2,H*0.85);
+  g.addColorStop(0, 'rgba(0,0,0,0)');
+  g.addColorStop(1, `rgba(0,0,0,${strength})`);
+  ctx.fillStyle=g; ctx.fillRect(0,0,W,H);
+  ctx.restore();
+}
+
+// ── Main render ───────────────────────────────────────────────────────────────
+function render(frame) {
+  const t   = frame / FPS;
+  const pulse = 0.5 + 0.5 * Math.sin(t * 1.1);
+
+  // ── Background ────────────────────────────────────────────────────────────
+  ctx.fillStyle = '#000000';
+  ctx.fillRect(0, 0, W, H);
+
+  // Master fade-in (0 → 0.5s)
+  const masterAlpha = interp(frame, [0,15], [0,1], 'eio');
+  ctx.save();
+  ctx.globalAlpha = masterAlpha;
+
+  // Volumetric light
+  drawVolumetricLight(pulse);
+  // Particles
+  drawParticles(frame);
+
+  ctx.restore();
+
+  if (masterAlpha < 0.01) { applyGrain(); return; }
+
+  // ── Camera dolly (scale from 1→1.06 between 6-8s) ────────────────────────
+  const dolly  = interp(frame, [180,240], [1.0, 1.06], 'eio');
+  const dollyCX = W/2, dollyCY = H/2;
+  ctx.save();
+  ctx.translate(dollyCX, dollyCY);
+  ctx.scale(dolly, dolly);
+  ctx.translate(-dollyCX, -dollyCY);
+
+  ctx.globalAlpha = masterAlpha;
+
+  // ── Logo center ───────────────────────────────────────────────────────────
+  // Ring slides in from right (0-3s = frames 0-90)
+  const ringTargetX = W / 2 + 55;
+  const ringX = interp(frame, [0, 90], [W + 300, ringTargetX], 'eio');
+
+  // Ring rotates: from -Math.PI*1.5 to 0 as it enters, then gentle sway
+  const ringEntryRot  = interp(frame, [0, 90], [-Math.PI*0.5, 0], 'eio');
+  const ringSteadySway = Math.sin(t * 0.7) * 0.018;
+  const ringRot       = frame < 90 ? ringEntryRot : ringSteadySway;
+  const ringOpacity   = interp(frame, [0, 45], [0, 1], 'eio');
+
+  const logoY   = H * 0.44;
+  const logoScale = 1.0;
+
+  drawFloor(logoY + 220);
+  drawTireRing(ringX, logoY, logoScale, ringRot, ringOpacity);
+
+  // ── "Anvelope" (white) slides from left (3-5s = frames 90-150) ────────────
+  const textOpacity = interp(frame, [90, 150], [0, 1], 'eio');
+  const anvelopeX   = interp(frame, [90, 150], [ringTargetX - 700, ringTargetX - 218], 'eio');
+  const ungheniX    = interp(frame, [105,165], [ringTargetX + 700, ringTargetX + 208], 'eio');
+
+  if (textOpacity > 0) {
+    const fontAnvelope = 'bold 112px Georgia, serif';
+    const fontUngheni  = 'bold 112px Georgia, serif';
+    const caAmt = interp(frame, [90,120], [4, 0.5]);
+
+    ctx.save();
+    ctx.globalAlpha = textOpacity * masterAlpha;
+    ctx.textBaseline = 'middle';
+
+    // Anvelope – white with subtle shadow
+    ctx.shadowColor = 'rgba(255,255,255,0.3)';
+    ctx.shadowBlur  = 15;
+    drawTextCA('Anvelope', anvelopeX, logoY, fontAnvelope, '#ffffff', caAmt, 'right');
+
+    // Ungheni – red
+    ctx.shadowColor = 'rgba(200,0,0,0.5)';
+    ctx.shadowBlur  = 20;
+    drawTextCA('Ungheni', ungheniX, logoY, fontUngheni, '#cc1010', caAmt, 'left');
+
+    ctx.restore();
+  }
+
+  // ── Light sweep across logo (6-7s = frames 180-210) ──────────────────────
+  if (frame >= 180 && frame <= 230) {
+    const swProgress = interp(frame, [180, 230], [0, 1]);
+    const swAlpha    = interp(frame, [180,192],[0,0.8]) * interp(frame,[215,230],[1,0]);
+    drawSweep(W/2, logoY, swProgress, swAlpha);
+  }
+
+  // ── Company info (8-12s = frames 240-360) ────────────────────────────────
+  const infoY      = logoY + 240;
+  const infoOpacity = interp(frame, [240, 300], [0, 1], 'eo') * masterAlpha;
+  drawInfo(W/2, infoY, infoOpacity);
+
+  // ── Info glow sweep (12-14s = frames 360-420) ────────────────────────────
+  if (frame >= 360 && frame <= 430) {
+    const gp  = interp(frame, [360, 430], [0, 1]);
+    const ga  = interp(frame, [360,375],[0,0.5]) * interp(frame,[415,430],[1,0]);
+    drawInfoSweep(gp, infoY, ga * infoOpacity);
+  }
+
+  // Red accent glow under tire (persistent after entry)
+  if (ringOpacity > 0) {
+    ctx.save();
+    ctx.globalAlpha = ringOpacity * 0.35 * masterAlpha;
+    const rg = ctx.createRadialGradient(ringX, logoY+180, 0, ringX, logoY+180, 240);
+    rg.addColorStop(0, 'rgba(180,10,10,0.4)');
+    rg.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle=rg; ctx.fillRect(ringX-240,logoY+60,480,240);
+    ctx.restore();
+  }
+
+  ctx.restore(); // end dolly transform
+
+  // ── Post-FX (always on top, outside camera transform) ────────────────────
+  applyVignette(0.6 + pulse*0.05);
+  applyGlow(masterAlpha * 0.6);
+  applyGrain();
+
+  // ── Final frame hold (14.5s+) dim overlay ────────────────────────────────
+  if (frame >= TOTAL_FRAMES - 15) {
+    const holdFade = interp(frame, [TOTAL_FRAMES-15, TOTAL_FRAMES], [0, 0]);
+    // keep at full brightness — just hold
+  }
+}
+
+// ── Playback ──────────────────────────────────────────────────────────────────
+const TOTAL_FRAMES = FPS * DUR;
+let frame = 0, lastTs = null;
+
+function loop(ts) {
+  if (!lastTs) lastTs = ts;
+  if ((ts - lastTs) >= 1000/FPS) {
+    render(Math.min(frame, TOTAL_FRAMES));
+    frame++;
+    if (frame > TOTAL_FRAMES) frame = TOTAL_FRAMES; // hold last frame
+    lastTs = ts;
+  }
+  requestAnimationFrame(loop);
 }
 
 render(0);
