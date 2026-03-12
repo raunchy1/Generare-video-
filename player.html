@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Product Showcase – Preview</title>
+  <script type="module" src="./node_modules/@helios-project/player/dist/helios-player.bundle.mjs"></script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      background: #08080f;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      font-family: system-ui, sans-serif;
+      color: #fff;
+      gap: 20px;
+      padding: 24px;
+    }
+    h1 {
+      font-size: 18px;
+      font-weight: 500;
+      color: rgba(255,255,255,0.5);
+      letter-spacing: 0.05em;
+    }
+    helios-player {
+      border-radius: 12px;
+      overflow: hidden;
+      box-shadow: 0 0 80px rgba(124,111,247,0.25);
+    }
+  </style>
+</head>
+<body>
+  <h1>Product Showcase · 10s · 1920×1080 · 30fps</h1>
+
+  <helios-player
+    src="./composition.html"
+    width="1280"
+    height="720"
+    controls
+    autoplay
+    loop
+    input-props='{"productName":"AuraPhone Pro","price":299,"tagline":"Reimagined. Refined. Ready.","accentColor":"#7c6ff7"}'
+  ></helios-player>
+</body>
+</html>

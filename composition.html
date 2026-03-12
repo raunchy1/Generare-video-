@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Product Showcase</title>
+  <script type="importmap">
+  {
+    "imports": {
+      "@helios-project/core": "./node_modules/@helios-project/core/dist/index.js"
+    }
+  }
+  </script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { background: #08080f; overflow: hidden; width: 1920px; height: 1080px; }
+    canvas { display: block; }
+  </style>
+</head>
+<body>
+  <canvas id="canvas" width="1920" height="1080"></canvas>
+  <script type="module" src="./src/main.js"></script>
+</body>
+</html>
