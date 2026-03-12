@@ -1,0 +1,6 @@
+{
+  "dependencies": {
+    "@helios-project/core": "^5.13.1",
+    "@helios-project/player": "^0.76.8"
+  }
+}
